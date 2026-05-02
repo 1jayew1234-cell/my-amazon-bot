@@ -5,76 +5,52 @@ import os
 import smtplib
 from email.message import EmailMessage
 
-# 1. BOT SETUP
-class MyBot(commands.Bot):
-    def __init__(self):
-        intents = discord.Intents.default()
-        intents.message_content = True
-        super().__init__(command_prefix="!", intents=intents)
+# 1. Setup Bot Intents
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_id=".", intents=intents)
 
-    async def setup_hook(self):
-        await self.tree.sync()
-        print(f"✅ Bot is online: {self.user}")
-
-bot = MyBot()
-
-# 2. THE MODAL (The popup where you enter info)
-class AmazonModal(discord.ui.Modal, title='Amazon Receipt Generator'):
-    email_input = discord.ui.TextInput(label='Customer Email', placeholder='user@gmail.com')
-    product_input = discord.ui.TextInput(label='Product Name', placeholder='Airpods Max - Midnight')
-    price_input = discord.ui.TextInput(label='Price', placeholder='548.00')
-    order_input = discord.ui.TextInput(label='Order Number', placeholder='202-4969648-4397107')
+# 2. Define the Receipt Pop-up Form
+class ReceiptModal(discord.ui.Modal, title='Amazon Receipt Generator'):
+    customer_email = discord.ui.TextInput(label='Customer Email', placeholder='user@gmail.com')
+    product_name = discord.ui.TextInput(label='Product Name', placeholder='Airpods Max')
+    price = discord.ui.TextInput(label='Price', placeholder='548.00')
 
     async def on_submit(self, interaction: discord.Interaction):
-        html_content = f"""
-        <html>
-        <body style="margin:0; padding:0; background-color:#000; font-family:Arial,sans-serif;">
-            <center>
-                <div style="background-color:#232f3e; color:#fff; padding:20px; border-radius:15px; max-width:380px; text-align:left; margin-top:20px;">
-                    <table width="100%">
-                        <tr>
-                            <td>
-                                <p style="margin:0; font-size:14px; color:#ccc;">1 item from Amazon.co.uk</p>
-                                <h2 style="margin:10px 0; font-size:24px;">Your package was delivered!</h2>
-                            </td>
-                            <td width="60">
-                                <img src="https://m.media-amazon.com/images/I/61f9N057X7L._AC_SL1500_.jpg" width="50" style="border-radius:5px; background:#fff;">
-                            </td>
-                        </tr>
-                    </table>
-                    <p style="font-weight:bold; margin-bottom:5px;">Delivered today</p>
-                    <p style="font-size:13px; color:#aaa; margin-top:0;">Your package was left near the front door or porch.</p>
-                    <p style="margin-bottom:2px;"><strong>Max — COVENTRY</strong></p>
-                    <p style="font-size:12px; color:#aaa; margin-top:0;">Order # {self.order_input.value}</p>
-                    <div style="background-color:#febd69; color:#000; padding:10px; border-radius:20px; text-align:center; font-weight:bold; margin-top:15px; width:120px; font-size:13px;">
-                        Track package
-                    </div>
-                </div>
-                <p style="color:#aaa; font-size:12px; margin-top:20px;">amazon.co.uk</p>
-            </center>
-        </body>
-        </html>
-        """
-
+        # This tells Discord to "Wait" so it doesn't error out
+        await interaction.response.defer(ephemeral=True)
+        
         try:
-            msg = EmailMessage()
-            msg['Subject'] = f"Delivered: {self.product_input.value}"
-            msg['From'] = os.environ['GMAIL_USER']
-            msg['To'] = self.email_input.value
-            msg.set_content("Your order has been delivered.")
-            msg.add_alternative(html_content, subtype='html')
+            # Get variables from Railway
+            gmail_user = os.environ.get('GMAIL_USER')
+            gmail_pass = os.environ.get('GMAIL_PASSWORD')
 
+            # Create the Email
+            msg = EmailMessage()
+            msg.set_content(f"Order Confirmation\n\nProduct: {self.product_name.value}\nPrice: ${self.price.value}")
+            msg['Subject'] = f"Your Amazon.com order of {self.product_name.value}"
+            msg['From'] = gmail_user
+            msg['To'] = self.customer_email.value
+
+            # Send the Email
             with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-                smtp.login(os.environ['GMAIL_USER'], os.environ['GMAIL_PASSWORD'])
+                smtp.login(gmail_user, gmail_pass)
                 smtp.send_message(msg)
 
-            await interaction.response.send_message(f"✅ Sent to {self.email_input.value}", ephemeral=True)
+            await interaction.followup.send(f"✅ Receipt sent to {self.customer_email.value}!", ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+            await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
 
-# 3. THE COMMAND
-@bot.tree.command(name="gen", description="Generate a receipt")
+# 3. The /gen Command
+@bot.tree.command(name="gen", description="Open the receipt generator")
 async def gen(interaction: discord.Interaction):
-    await interaction.response.send_modal(AmazonModal())
+    # This opens the pop-up form immediately
+    await interaction.response.send_modal(ReceiptModal())
 
-bot.run(os.environ['DISCORD_TOKEN'])
+@bot.event
+async def on_ready():
+    await bot.tree.sync()
+    print(f"✅ {bot.user} is online and commands are synced!")
+
+# 4. Start the Bot
+bot.run(os.environ.get('DISCORD_TOKEN'))
